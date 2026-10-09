@@ -1,0 +1,1107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lumen Console</title>
+<meta name="theme-color" content="#04080d">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>html,body{margin:0;background:#04080d}</style>
+</head>
+<body>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: top status bar, three columns (vitals | reactor core | modules), command console underneath. Committed dark HUD, single theme. */
+:root {
+  --bg: #04080d;
+  --panel: #08121c;
+  --panel-2: #0b1826;
+  --line: #14324a;
+  --line-hot: #2a6f98;
+  --cyan: #5ad8ff;
+  --cyan-dim: #2b7f9e;
+  --amber: #ffb454;
+  --ok: #5eead4;
+  --fg: #cfe8f5;
+  --dim: #6d8da3;
+  --display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  padding-inline: 16px;
+  padding-block: 14px 24px;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  background-position: -1px -1px;
+  background-blend-mode: normal;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 38%, rgba(4,8,13,0.55), var(--bg) 78%);
+  pointer-events: none;
+  z-index: 0;
+}
+.wrap { position: relative; z-index: 1; max-width: 1280px; margin-inline: auto; display: flex; flex-direction: column; gap: 14px; }
+
+/* status bar */
+.bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.brand h1 { margin: 0; font: 600 20px/1 var(--display); letter-spacing: 0.32em; text-transform: uppercase; color: var(--cyan); }
+.brand span { color: var(--dim); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; }
+.clock { display: flex; align-items: baseline; gap: 14px; font-variant-numeric: tabular-nums; }
+.clock b { font: 500 22px/1 var(--display); letter-spacing: 0.08em; color: var(--fg); }
+.clock small { color: var(--dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* grid */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+.panel { position: relative; background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--line); padding: 12px 14px 14px; min-width: 0; }
+.panel::before, .panel::after { content: ""; position: absolute; width: 10px; height: 10px; border: 1px solid var(--cyan); pointer-events: none; }
+.panel::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+.panel::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+.panel h2 { margin: 0 0 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font: 500 11px/1 var(--display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--cyan); }
+.panel h2 em { font: 400 10px/1 var(--mono); font-style: normal; letter-spacing: 0.08em; color: var(--dim); text-transform: none; }
+
+/* vitals */
+.vital { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding-block: 8px; border-top: 1px dashed var(--line); }
+.vital:first-of-type { border-top: 0; padding-top: 0; }
+.vital .k { color: var(--dim); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; }
+.vital .v { font: 500 17px/1 var(--display); font-variant-numeric: tabular-nums; color: var(--fg); text-align: right; }
+.vital .v.warn { color: var(--amber); }
+.vital canvas { grid-column: 1 / -1; width: 100%; height: 34px; display: block; }
+
+/* core */
+.core { align-items: stretch; }
+.core .panel { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.stage { position: relative; width: 100%; max-width: 520px; aspect-ratio: 1; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.readout { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 22px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.readout b { font-weight: 500; color: var(--cyan); }
+.state { font: 500 15px/1 var(--display); letter-spacing: 0.4em; text-transform: uppercase; color: var(--fg); text-indent: 0.4em; }
+
+/* modules */
+.mod { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; align-items: center; padding-block: 10px; border-top: 1px dashed var(--line); }
+.mod:first-of-type { border-top: 0; padding-top: 0; }
+.mod .name { font: 500 14px/1.2 var(--display); letter-spacing: 0.06em; color: var(--fg); }
+.mod .sub { grid-column: 1; color: var(--dim); font-size: 11px; }
+.mod button { grid-row: 1 / span 2; grid-column: 2; }
+.switch { appearance: none; background: transparent; border: 1px solid var(--line-hot); width: 52px; height: 24px; padding: 0; position: relative; cursor: pointer; color: var(--dim); font: 500 9px/1 var(--display); letter-spacing: 0.14em; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: var(--dim); transition: transform .18s ease, background .18s ease; }
+.switch[aria-checked="true"] { border-color: var(--cyan); box-shadow: 0 0 12px rgba(90,216,255,0.28); }
+.switch[aria-checked="true"]::after { transform: translateX(28px); background: var(--cyan); }
+.switch:focus-visible, .chip:focus-visible, #cmd:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.alerts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.alerts li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; font-size: 12px; }
+.alerts .tag { font: 500 9px/1 var(--display); letter-spacing: 0.16em; padding: 4px 6px; border: 1px solid var(--line-hot); color: var(--cyan); text-transform: uppercase; }
+.alerts .tag.amber { border-color: var(--amber); color: var(--amber); }
+.alerts .tag.ok { border-color: var(--ok); color: var(--ok); }
+
+/* console */
+.console { display: flex; flex-direction: column; gap: 10px; }
+.log { height: 210px; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; scrollbar-color: var(--line-hot) transparent; }
+.log div { overflow-wrap: anywhere; }
+.log .u { color: var(--dim); }
+.log .u::before { content: "> "; color: var(--cyan-dim); }
+.log .a { color: var(--fg); }
+.log .a::before { content: "L  "; color: var(--cyan); font-weight: 500; }
+.log .s { color: var(--dim); font-size: 12px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { background: transparent; border: 1px solid var(--line-hot); color: var(--cyan); font: 500 11px/1 var(--display); letter-spacing: 0.16em; text-transform: uppercase; padding: 8px 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+.chip:hover { background: rgba(90,216,255,0.1); border-color: var(--cyan); }
+.chip[aria-pressed="true"] { background: var(--cyan); color: var(--bg); border-color: var(--cyan); box-shadow: 0 0 14px rgba(90,216,255,0.35); }
+.vh { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+#heard { min-height: 1.55em; color: var(--cyan); font-size: 12px; overflow-wrap: anywhere; }
+.meter { flex: 1 1 120px; min-width: 90px; height: 6px; align-self: center; background: var(--line); position: relative; }
+.meter i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+[hidden] { display: none !important; }
+.keybox { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border: 1px dashed var(--line-hot); }
+.keybox label { color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.keybox input { flex: 1 1 220px; min-width: 0; background: rgba(4,8,13,0.6); border: 1px solid var(--line-hot); color: var(--fg); font: 400 13px/1.4 var(--mono); padding: 8px 10px; }
+.keybox input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.keybox .note { flex-basis: 100%; }
+.keybox select { flex: 1 1 220px; min-width: 0; background: rgba(4,8,13,0.9); border: 1px solid var(--line-hot); color: var(--fg); font: 400 13px/1.4 var(--mono); padding: 8px 10px; }
+.keybox select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.keybox progress { flex: 1 1 100%; height: 6px; accent-color: var(--cyan); }
+.col:not(.core), .console { transition: opacity .8s ease, filter .8s ease; }
+.wrap.off .col:not(.core), .wrap.off .console { opacity: .2; filter: grayscale(.9); pointer-events: none; }
+.sens { display: inline-flex; align-items: center; gap: 8px; color: var(--dim); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.sens input { width: 96px; accent-color: var(--cyan); }
+#clapinfo { color: var(--cyan); font-size: 11px; min-width: 14ch; }
+#wakehint { color: var(--dim); font-size: 12px; text-align: center; }
+form { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line-hot); padding: 4px 4px 4px 12px; background: rgba(4,8,13,0.6); }
+form:focus-within { border-color: var(--cyan); box-shadow: 0 0 14px rgba(90,216,255,0.2); }
+form label { color: var(--cyan); font-weight: 500; }
+#cmd { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--fg); font: 400 14px/1.4 var(--mono); padding: 8px 4px; outline: none; }
+#cmd::placeholder { color: var(--dim); }
+form button { background: var(--cyan); color: var(--bg); border: 0; font: 600 11px/1 var(--display); letter-spacing: 0.2em; text-transform: uppercase; padding: 11px 16px; cursor: pointer; }
+form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+.note { color: var(--dim); font-size: 11px; }
+
+@media (max-width: 960px) {
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .core { order: -1; }
+}
+@media (max-width: 520px) {
+  .brand span { display: none; }
+  .clock b { font-size: 18px; }
+  .log { height: 190px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .switch::after { transition: none; }
+}
+</style>
+
+<div class="wrap">
+  <header class="bar">
+    <div class="brand"><h1>Lumen</h1><span>Household intelligence / Core 4.2</span></div>
+    <button class="chip" type="button" id="power" aria-pressed="true">Power</button>
+    <div class="clock"><small id="tz">Local</small><b id="clock">--:--:--</b><small id="date">&nbsp;</small></div>
+  </header>
+
+  <main class="grid">
+    <section class="col" aria-label="System vitals">
+      <div class="panel">
+        <h2>Telemetry <em>simulated</em></h2>
+        <div class="vital"><span class="k">Compute load</span><span class="v" id="v-cpu">--</span><canvas id="s-cpu" aria-hidden="true"></canvas></div>
+        <div class="vital"><span class="k">Memory</span><span class="v" id="v-mem">--</span><canvas id="s-mem" aria-hidden="true"></canvas></div>
+        <div class="vital"><span class="k">Uplink</span><span class="v" id="v-net">--</span><canvas id="s-net" aria-hidden="true"></canvas></div>
+        <div class="vital"><span class="k">Core temp</span><span class="v" id="v-tmp">--</span><canvas id="s-tmp" aria-hidden="true"></canvas></div>
+      </div>
+    </section>
+
+    <section class="col core" aria-label="Reactor core">
+      <div class="panel">
+        <h2>Reactor core <em id="coreid">unit 01</em></h2>
+        <div class="stage"><canvas id="core" role="img" aria-label="Animated reactor core visualisation"></canvas></div>
+        <div class="state" id="state">Standby</div>
+        <div id="wakehint" hidden></div>
+        <div class="readout"><span>Output <b id="out">72%</b></span><span>Latency <b id="lat">12 ms</b></span><span>Nodes <b id="nodes">12/12</b></span></div>
+      </div>
+    </section>
+
+    <section class="col" aria-label="Modules and alerts">
+      <div class="panel">
+        <h2>Modules <em id="modcount">3 of 4 active</em></h2>
+        <div class="mod"><span class="name">Perimeter sweep</span><span class="sub">Door and window sensors</span><button class="switch" role="switch" aria-checked="true" aria-label="Perimeter sweep" data-mod="Perimeter sweep"></button></div>
+        <div class="mod"><span class="name">Power routing</span><span class="sub">Load balancing, 3 circuits</span><button class="switch" role="switch" aria-checked="true" aria-label="Power routing" data-mod="Power routing"></button></div>
+        <div class="mod"><span class="name">Comms relay</span><span class="sub">Encrypted messaging bridge</span><button class="switch" role="switch" aria-checked="true" aria-label="Comms relay" data-mod="Comms relay"></button></div>
+        <div class="mod"><span class="name">Archive index</span><span class="sub">Rebuilds nightly at 02:00</span><button class="switch" role="switch" aria-checked="false" aria-label="Archive index" data-mod="Archive index"></button></div>
+      </div>
+      <div class="panel">
+        <h2>Advisories</h2>
+        <ul class="alerts">
+          <li><span class="tag ok">Clear</span><span>All 12 sensor nodes responding.</span></li>
+          <li><span class="tag amber">Notice</span><span>Backup battery in the workshop reads 64%.</span></li>
+          <li><span class="tag">Info</span><span>Firmware 4.2.1 is staged and waiting for approval.</span></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <section class="panel console" aria-label="Command console">
+    <h2>Console <em>ask anything</em></h2>
+    <div class="log" id="log" role="log" aria-live="polite"></div>
+    <div class="chips" id="chips">
+      <button class="chip" type="button" data-c="status">Status</button>
+      <button class="chip" type="button" data-c="scan">Scan</button>
+      <button class="chip" type="button" data-c="diagnostics">Diagnostics</button>
+      <button class="chip" type="button" data-c="time">Time</button>
+      <button class="chip" type="button" data-c="help">Help</button>
+      <button class="chip" type="button" id="mic" aria-pressed="false">Voice on</button>
+      <button class="chip" type="button" id="modebtn" hidden>Mic mode: React + clap</button>
+      <button class="chip" type="button" id="speakbtn" aria-pressed="true">Voice reply: on</button>
+      <button class="chip" type="button" id="voicebtn" hidden>Voice: auto</button>
+      <button class="chip" type="button" id="filebtn">Play audio file</button>
+      <button class="chip" type="button" id="brainbtn" hidden>On-device brain</button>
+      <button class="chip" type="button" id="keybtn" hidden>API key</button>
+      <button class="chip" type="button" id="clapmode">Clap: double</button>
+      <label class="sens" for="sens">Clap sensitivity <input type="range" id="sens" min="1" max="10" value="5"></label>
+      <span id="clapinfo" aria-live="polite"></span>
+      <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+      <input class="vh" type="file" id="file" accept="audio/*" tabindex="-1" aria-label="Choose an audio file">
+    </div>
+    <div id="heard" aria-live="polite"></div>
+    <div class="keybox" id="brainbox" hidden>
+      <label for="brainsel">Free brain on this computer</label>
+      <select id="brainsel">
+        <option value="SmolLM2-360M-Instruct">Small and fast (about 0.4 GB of graphics memory)</option>
+        <option value="Qwen2.5-1.5B-Instruct" selected>Balanced (about 1.6 GB)</option>
+        <option value="Llama-3.2-3B-Instruct">Smartest (about 2.3 GB)</option>
+      </select>
+      <button class="chip" type="button" id="braingo">Download and turn on</button>
+      <button class="chip" type="button" id="brainoff" hidden>Turn off</button>
+      <progress id="brainprog" max="100" value="0" hidden></progress>
+      <div class="note" id="brainnote">Runs entirely on this computer: no account, no key, no cost, and it keeps working offline after a one-time download. It needs Chrome on a computer with WebGPU. Its answers are simpler and less reliable than Claude's, so double-check anything important.</div>
+    </div>
+    <div class="keybox" id="keybox" hidden>
+      <label for="apikey">Anthropic API key</label>
+      <input id="apikey" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-...">
+      <button class="chip" type="button" id="keysave">Save</button>
+      <button class="chip" type="button" id="keyclear">Remove</button>
+      <div class="note">Stored only in this browser on this computer and sent only to api.anthropic.com. Answers are billed to your API account, which is separate from a Claude subscription.</div>
+    </div>
+    <form id="form" autocomplete="off">
+      <label for="cmd">&gt;</label>
+      <input id="cmd" type="text" placeholder="Ask Lumen anything, like you would ask a person" spellcheck="false" autocapitalize="off">
+      <button type="submit">Send</button>
+    </form>
+    <div class="note">Open questions are answered by Claude using your own Claude usage, and it cannot look things up live. Telemetry, sensors and built-in commands are simulated and not connected to real devices.</div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var css = getComputedStyle(document.documentElement);
+  var C = {
+    cyan: css.getPropertyValue("--cyan").trim() || "#5ad8ff",
+    dim: css.getPropertyValue("--cyan-dim").trim() || "#2b7f9e",
+    line: css.getPropertyValue("--line-hot").trim() || "#2a6f98",
+    amber: css.getPropertyValue("--amber").trim() || "#ffb454",
+    fg: css.getPropertyValue("--fg").trim() || "#cfe8f5"
+  };
+  var pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
+
+  /* ---------- clock ---------- */
+  var tz = "Local";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Local"; } catch (e) {}
+  $("#tz").textContent = tz.replace(/_/g, " ");
+  function tick() {
+    var d = new Date();
+    $("#clock").textContent = pad2(d.getHours()) + ":" + pad2(d.getMinutes()) + ":" + pad2(d.getSeconds());
+    $("#date").textContent = d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  }
+  tick(); setInterval(tick, 1000);
+
+  /* ---------- state ---------- */
+  var state = "standby";
+  var labels = { standby: "Standby", listening: "Listening", working: "Processing", speaking: "Responding" };
+  var speed = { standby: 1, listening: 1.8, working: 5, speaking: 2.6 };
+  /* ---------- voice input state (filled in below) ---------- */
+  var audio = { ctx: null, an: null, data: null, src: null, stream: null, mode: "", on: false, level: 0, bins: new Array(64).fill(0), buf: null };
+  var shownLabel = "";
+  var powered = true, pwr = 1, ptarget = 1, flash = 0;
+  function paintLabel() {
+    var hearing = powered && audio.on && audio.level > 0.1 && state !== "working" && state !== "speaking";
+    var t = !powered ? "Offline" : hearing ? "Hearing you" : labels[state];
+    if (t !== shownLabel) { shownLabel = t; $("#state").textContent = t; }
+  }
+  function setState(s) { state = s; paintLabel(); if (reduce && !audio.on) drawCore(0); }
+
+  /* ---------- telemetry ---------- */
+  var N = 48;
+  var vit = {
+    cpu: { v: 34, lo: 12, hi: 88, fmt: function (x) { return Math.round(x) + "%"; }, warn: 80 },
+    mem: { v: 58, lo: 45, hi: 82, fmt: function (x) { return Math.round(x) + "%"; }, warn: 85 },
+    net: { v: 240, lo: 60, hi: 480, fmt: function (x) { return Math.round(x) + " Mb/s"; }, warn: 9999 },
+    tmp: { v: 41, lo: 34, hi: 62, fmt: function (x) { return x.toFixed(1) + " °C"; }, warn: 58 }
+  };
+  Object.keys(vit).forEach(function (k) {
+    var o = vit[k]; o.h = [];
+    var x = o.v;
+    for (var i = 0; i < N; i++) { x = clamp(x + (Math.random() - 0.5) * (o.hi - o.lo) * 0.12, o.lo, o.hi); o.h.push(x); }
+    o.v = x;
+  });
+  function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+  function spark(k) {
+    var o = vit[k], cv = $("#s-" + k);
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    var g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = "rgba(42,111,152,0.35)"; g.lineWidth = 1;
+    for (var r = 1; r < 3; r++) { var yy = Math.round(h * r / 3) + 0.5; g.beginPath(); g.moveTo(0, yy); g.lineTo(w, yy); g.stroke(); }
+    var pts = o.h.map(function (v, i) { return [i / (N - 1) * (w - 4) + 2, h - 3 - (v - o.lo) / (o.hi - o.lo) * (h - 8)]; });
+    var grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, "rgba(90,216,255,0.28)"); grad.addColorStop(1, "rgba(90,216,255,0)");
+    g.beginPath(); g.moveTo(pts[0][0], h);
+    pts.forEach(function (p) { g.lineTo(p[0], p[1]); });
+    g.lineTo(pts[N - 1][0], h); g.closePath(); g.fillStyle = grad; g.fill();
+    g.beginPath(); pts.forEach(function (p, i) { i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]); });
+    g.strokeStyle = C.cyan; g.lineWidth = 1.5; g.lineJoin = "round"; g.stroke();
+    var e = pts[N - 1];
+    g.beginPath(); g.arc(e[0], e[1], 3, 0, 6.2832); g.fillStyle = o.v > o.warn ? C.amber : C.cyan; g.fill();
+  }
+  function stepVitals() {
+    if (!powered) return;
+    var busy = state === "working" ? 1.6 : 1;
+    Object.keys(vit).forEach(function (k) {
+      var o = vit[k];
+      var drift = (o.lo + o.hi) / 2 - o.v;
+      o.v = clamp(o.v + drift * 0.05 + (Math.random() - 0.5) * (o.hi - o.lo) * 0.09 * (k === "cpu" ? busy : 1), o.lo, o.hi);
+      o.h.push(o.v); o.h.shift();
+      var el = $("#v-" + k);
+      el.textContent = o.fmt(o.v);
+      el.className = "v" + (o.v > o.warn ? " warn" : "");
+      spark(k);
+    });
+    $("#lat").textContent = Math.round(9 + Math.random() * 8) + " ms";
+  }
+  stepVitals(); setInterval(stepVitals, 1000);
+  window.addEventListener("resize", function () { Object.keys(vit).forEach(spark); });
+
+  /* ---------- reactor core ---------- */
+  var cv = $("#core"), cg = cv.getContext("2d"), size = 0, dpr = 1;
+  function fit() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    size = cv.clientWidth;
+    cv.width = Math.round(size * dpr); cv.height = Math.round(size * dpr);
+    if (reduce) drawCore(0);
+  }
+  var rings = [
+    { r: 0.93, w: 1,   dash: [2, 7],   dir: 1,  s: 0.05, col: "line" },
+    { r: 0.86, w: 6,   dash: [90, 40, 30, 60], dir: -1, s: 0.11, col: "cyan" },
+    { r: 0.76, w: 1.5, dash: [4, 4],   dir: 1,  s: 0.18, col: "dim" },
+    { r: 0.66, w: 10,  dash: [140, 60, 20, 90], dir: 1, s: 0.15, col: "dim" },
+    { r: 0.55, w: 2,   dash: [1, 0],   dir: -1, s: 0.3,  col: "cyan" },
+    { r: 0.44, w: 5,   dash: [60, 30], dir: -1, s: 0.4,  col: "cyan" }
+  ];
+  var parts = [];
+  for (var i = 0; i < 46; i++) parts.push({ a: Math.random() * 6.2832, r: 0.3 + Math.random() * 0.62, v: (0.05 + Math.random() * 0.25) * (Math.random() < 0.5 ? -1 : 1), z: 0.6 + Math.random() * 1.4 });
+  var phase = 0, vel = 1, last = 0, pulse = 0;
+  function drawCore(dt) {
+    pwr += (ptarget - pwr) * Math.min(1, dt * 2.2);
+    if (reduce) pwr = ptarget;
+    flash = Math.max(0, flash - dt * 1.6);
+    cv.style.opacity = (0.2 + 0.8 * pwr).toFixed(3);
+    var voice = (audio.on ? audio.level : 0) * pwr;
+    var tgt = ((reduce ? 0 : speed[state]) + voice * 7) * pwr;
+    vel += (tgt - vel) * Math.min(1, dt * 3);
+    phase += dt * vel;
+    pulse += dt * (state === "working" ? 7 : state === "speaking" ? 4.5 : 1.6);
+    var S = size * dpr, cx = S / 2, cy = S / 2, R = S / 2 * 0.98;
+    cg.setTransform(1, 0, 0, 1, 0, 0);
+    cg.clearRect(0, 0, S, S);
+    var amp = Math.min(1, (0.5 + 0.5 * Math.sin(pulse)) * (1 - voice * 0.5) + voice * 0.9) * (0.12 + 0.88 * pwr);
+    // glow
+    var gl = cg.createRadialGradient(cx, cy, 0, cx, cy, R * 0.5);
+    gl.addColorStop(0, "rgba(160,232,255," + (0.55 + amp * 0.3) + ")");
+    gl.addColorStop(0.35, "rgba(90,216,255," + (0.18 + amp * 0.1) + ")");
+    gl.addColorStop(1, "rgba(90,216,255,0)");
+    cg.fillStyle = gl; cg.beginPath(); cg.arc(cx, cy, R * 0.5, 0, 6.2832); cg.fill();
+    // voice spectrum bars (only while a voice source is live)
+    if (flash > 0) {
+      cg.strokeStyle = C.fg; cg.globalAlpha = flash * 0.8; cg.lineWidth = 3 * dpr;
+      cg.beginPath(); cg.arc(cx, cy, R * (0.3 + (1 - flash) * 0.68), 0, 6.2832); cg.stroke();
+      cg.globalAlpha = 1;
+    }
+    if (audio.on && pwr > 0.3) {
+      cg.save(); cg.translate(cx, cy); cg.rotate(-1.5708);
+      var nb = audio.bins.length;
+      for (var b = 0; b < nb; b++) {
+        var ang = b / nb * 6.2832, m = b < nb / 2 ? b : nb - 1 - b;
+        var v = audio.bins[Math.min(nb - 1, m * 2)];
+        var r0 = R * 0.34, r1b = r0 + 4 * dpr + v * R * 0.2;
+        cg.strokeStyle = v > 0.6 ? C.fg : C.cyan; cg.globalAlpha = 0.45 + v * 0.55;
+        cg.lineWidth = Math.max(2, S / 200); cg.lineCap = "round";
+        cg.beginPath(); cg.moveTo(Math.cos(ang) * r0, Math.sin(ang) * r0); cg.lineTo(Math.cos(ang) * r1b, Math.sin(ang) * r1b); cg.stroke();
+      }
+      cg.restore(); cg.globalAlpha = 1; cg.lineCap = "butt";
+    }
+    // tick ring
+    cg.save(); cg.translate(cx, cy); cg.rotate(phase * 0.02);
+    for (var t = 0; t < 120; t++) {
+      var a = t / 120 * 6.2832, major = t % 10 === 0, r1 = R * 0.97, r2 = R * (major ? 0.915 : 0.95);
+      cg.strokeStyle = major ? C.cyan : C.line; cg.lineWidth = (major ? 2 : 1) * dpr;
+      cg.beginPath(); cg.moveTo(Math.cos(a) * r1, Math.sin(a) * r1); cg.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); cg.stroke();
+    }
+    cg.restore();
+    // rings
+    rings.forEach(function (rg) {
+      cg.save(); cg.translate(cx, cy); cg.rotate(phase * rg.s * rg.dir * 2);
+      cg.strokeStyle = C[rg.col]; cg.lineWidth = rg.w * dpr;
+      cg.setLineDash(rg.dash.map(function (d) { return d * dpr * (size / 520); }));
+      cg.beginPath(); cg.arc(0, 0, R * rg.r * 0.96, 0, 6.2832); cg.stroke();
+      cg.restore();
+    });
+    cg.setLineDash([]);
+    // inner ring + bright core
+    cg.strokeStyle = C.cyan; cg.lineWidth = 2 * dpr;
+    cg.beginPath(); cg.arc(cx, cy, R * (0.27 + amp * 0.012), 0, 6.2832); cg.stroke();
+    cg.save(); cg.translate(cx, cy); cg.rotate(-phase * 0.4);
+    for (var s = 0; s < 3; s++) {
+      cg.rotate(2.0944);
+      cg.strokeStyle = C.fg; cg.lineWidth = 3 * dpr;
+      cg.beginPath(); cg.arc(0, 0, R * 0.2, -0.5, 0.5); cg.stroke();
+    }
+    cg.restore();
+    var cr = cg.createRadialGradient(cx, cy, 0, cx, cy, R * 0.13);
+    cr.addColorStop(0, "rgba(255,255,255,1)"); cr.addColorStop(0.6, "rgba(160,232,255,0.9)"); cr.addColorStop(1, "rgba(90,216,255,0)");
+    cg.fillStyle = cr; cg.beginPath(); cg.arc(cx, cy, R * (0.13 + amp * 0.008), 0, 6.2832); cg.fill();
+    // particles
+    parts.forEach(function (p) {
+      p.a += p.v * dt * vel * 0.9;
+      var x = cx + Math.cos(p.a) * p.r * R, y = cy + Math.sin(p.a) * p.r * R;
+      cg.fillStyle = "rgba(160,232,255," + (0.35 + 0.4 * Math.abs(Math.sin(p.a * 3 + pulse * 0.3))) + ")";
+      cg.beginPath(); cg.arc(x, y, p.z * dpr, 0, 6.2832); cg.fill();
+    });
+    // crosshair
+    cg.strokeStyle = C.line; cg.lineWidth = dpr;
+    [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(function (d) {
+      cg.beginPath(); cg.moveTo(cx + d[0] * R * 0.17, cy + d[1] * R * 0.17); cg.lineTo(cx + d[0] * R * 0.23, cy + d[1] * R * 0.23); cg.stroke();
+    });
+  }
+  var looping = false;
+  /* Clap detection: a short, sharp, loud spike that stands well above the recent background level. */
+  var clapBuf = null, basePeak = 0.02, lastClap = -1e9, clapTimes = [], clapMode = "double", sens = 5, infoTimer = 0;
+  function clapThreshold() { return 0.74 - 0.065 * sens; }
+  function detectClap(now) {
+    if (!audio.clapAn || isTalking()) return;
+    if (!clapBuf || clapBuf.length !== audio.clapAn.fftSize) clapBuf = new Float32Array(audio.clapAn.fftSize);
+    audio.clapAn.getFloatTimeDomainData(clapBuf);
+    var peak = 0, sq = 0;
+    for (var i = 0; i < clapBuf.length; i++) { var v = Math.abs(clapBuf[i]); if (v > peak) peak = v; sq += v * v; }
+    var rms = Math.sqrt(sq / clapBuf.length) || 1e-6;
+    var isClap = peak > clapThreshold() && peak / rms > 3.2 && peak > basePeak * 3.5 && now - lastClap > 140;
+    if (!isClap) { basePeak += (peak - basePeak) * 0.03; return; }
+    lastClap = now; flash = 1;
+    var info = $("#clapinfo"); info.textContent = "Clap " + peak.toFixed(2);
+    clearTimeout(infoTimer); infoTimer = setTimeout(function () { info.textContent = ""; }, 1500);
+    clapTimes.push(now);
+    clapTimes = clapTimes.filter(function (t) { return now - t < 900; });
+    if (clapMode === "single" || clapTimes.length >= 2) { clapTimes = []; togglePower("Clap detected."); }
+  }
+  function sampleAudio(now) {
+    if (audio.on && audio.mode === "talk") {               // no audio stream here: pulse while speech recognition hears sound
+      var hearing = audio.talking && !isTalking();
+      audio.level += ((hearing ? 0.35 + 0.3 * Math.abs(Math.sin(now / 95)) : 0) - audio.level) * 0.3;
+      for (var j = 0; j < audio.bins.length; j++) audio.bins[j] += ((hearing ? Math.random() * 0.6 : 0) - audio.bins[j]) * 0.4;
+      return;
+    }
+    if (!audio.on || !audio.an) { audio.level *= 0.8; for (var i = 0; i < audio.bins.length; i++) audio.bins[i] *= 0.8; return; }
+    audio.an.getByteFrequencyData(audio.data);
+    var d = audio.data, sum = 0, n = 0;
+    for (var k = 2; k < 40; k++) { sum += d[k]; n++; }
+    var raw = Math.min(1, (sum / n) / 255 * 2.6);
+    audio.level += (raw - audio.level) * 0.35;
+    for (var b = 0; b < audio.bins.length; b++) {
+      var idx = 1 + Math.floor(Math.pow(b / audio.bins.length, 1.4) * 70);
+      var tv = Math.min(1, d[idx] / 255 * 1.5);
+      audio.bins[b] += (tv - audio.bins[b]) * 0.4;
+    }
+    detectClap(now);
+  }
+  function loop(ts) {
+    var dt = last ? Math.min(0.05, (ts - last) / 1000) : 0.016;
+    last = ts;
+    sampleAudio(ts);
+    $("#meter").style.width = Math.round(audio.level * 100) + "%";
+    drawCore(dt);
+    paintLabel();
+    if (reduce && !audio.on && audio.level < 0.01) { looping = false; last = 0; var mt = $("#meter"); if (mt) mt.style.width = "0"; return; }
+    requestAnimationFrame(loop);
+  }
+  function ensureLoop() { if (!looping) { looping = true; requestAnimationFrame(loop); } }
+  fit();
+  if ("ResizeObserver" in window) new ResizeObserver(fit).observe(cv); else window.addEventListener("resize", fit);
+  if (reduce) drawCore(0); else ensureLoop();
+
+  /* ---------- modules ---------- */
+  var mods = {};
+  document.querySelectorAll(".switch").forEach(function (b) { mods[b.dataset.mod] = b.getAttribute("aria-checked") === "true"; });
+  function refreshMods() {
+    var n = Object.keys(mods).filter(function (k) { return mods[k]; }).length;
+    $("#modcount").textContent = n + " of 4 active";
+    $("#out").textContent = (46 + n * 9) + "%";
+  }
+  refreshMods();
+  document.querySelectorAll(".switch").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var on = b.getAttribute("aria-checked") !== "true";
+      b.setAttribute("aria-checked", on ? "true" : "false");
+      mods[b.dataset.mod] = on;
+      refreshMods();
+      line(b.dataset.mod + (on ? " enabled." : " disabled."), "s");
+    });
+  });
+
+  /* ---------- console ---------- */
+  var log = $("#log"), form = $("#form"), cmd = $("#cmd"), busy = false;
+  function line(text, cls) {
+    var d = document.createElement("div"); d.className = cls; d.textContent = text;
+    log.appendChild(d); log.scrollTop = log.scrollHeight; return d;
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, reduce ? 0 : ms); }); }
+  async function say(text) {
+    var d = line("", "a");
+    speak(text);
+    if (reduce) { d.textContent = text; log.scrollTop = log.scrollHeight; return; }
+    setState("speaking");
+    for (var i = 1; i <= text.length; i++) {
+      d.textContent = text.slice(0, i);
+      log.scrollTop = log.scrollHeight;
+      await sleep(text.charAt(i - 1) === " " ? 9 : 15);
+    }
+  }
+  function greeting() {
+    var h = new Date().getHours();
+    return h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+  }
+  function activeList() { return Object.keys(mods).filter(function (k) { return mods[k]; }); }
+
+  var commands = {
+    help: function () { return ["Ask me anything the way you would ask a person: why the sky is blue, what to cook tonight, how to say thanks in French.", "Quick commands: status, scan, diagnostics, time, date, modules, clear, shut down.", "With the mic on, clap twice to power me off or back on. The Power button always works.", "I speak my answers out loud. Tap the glowing core to make me stop, or use Voice reply to turn it off."]; },
+    status: function () {
+      var a = activeList();
+      return ["All systems nominal. " + a.length + " of 4 modules active" + (a.length ? ": " + a.join(", ") + "." : "."),
+              "Compute " + vit.cpu.fmt(vit.cpu.v) + ", memory " + vit.mem.fmt(vit.mem.v) + ", uplink " + vit.net.fmt(vit.net.v) + "."];
+    },
+    modules: function () {
+      return Object.keys(mods).map(function (k) { return k + ": " + (mods[k] ? "active" : "offline"); });
+    },
+    time: function () { return ["It is " + $("#clock").textContent + " in " + tz.replace(/_/g, " ") + "."]; },
+    date: function () { return ["Today is " + new Date().toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) + "."]; },
+    diagnostics: async function () {
+      var steps = ["Checking core integrity", "Verifying sensor mesh", "Testing uplink", "Auditing power rails"];
+      for (var i = 0; i < steps.length; i++) { line(steps[i] + "...", "s"); await sleep(520); }
+      return ["Diagnostics complete. Core temperature " + vit.tmp.fmt(vit.tmp.v) + ". One advisory: the workshop backup battery is at 64%."];
+    },
+    scan: async function () {
+      line("Sweeping 12 sensor nodes...", "s"); await sleep(900);
+      line("Cross-checking motion and door logs...", "s"); await sleep(800);
+      return ["Scan complete. 12 of 12 nodes responding. No anomalies in the last 24 hours."];
+    },
+    clear: function () { log.textContent = ""; return []; },
+    hello: function () { return ["Copy. " + greeting() + ". Lumen is online and listening."]; },
+    who: function () { return ["I am Lumen, the interface for this household's systems. This build is a demo and controls nothing real."]; }
+  };
+  /* Short utterances map to built-in commands; everything else goes to Claude. */
+  function resolve(q) {
+    q = q.toLowerCase().replace(/[?!.,]/g, "").trim();
+    if (!q) return "help";
+    var words = q.split(/\s+/);
+    if (/^(hi|hello|hey|yo)\b/.test(q) && words.length <= 3) return "hello";
+    if (/^(who are you|what are you|what is your name|whats your name|what's your name)$/.test(q)) return "who";
+    if (/^(what time is it|whats the time|what's the time|what is the time|tell me the time|current time)( now| please)?$/.test(q)) return "time";
+    if (/^(what day is it|whats the date|what's the date|what is the date|what is today|whats today|what's today|todays date|today's date)( today)?$/.test(q)) return "date";
+    if (/^(shut ?down|power (off|down)|go to sleep|sleep|good ?night|turn off|shut (it |everything )?(down|off))( lumen)?$/.test(q)) return "shutdown";
+    if (/^(wake( up)?|power on|start ?up|turn on|boot( up)?|come online|online)( lumen)?$/.test(q)) return "wake";
+    if (words.length <= 3) {
+      var keys = ["diagnostics", "diagnostic", "diag", "status", "scan", "modules", "time", "date", "clear", "help"];
+      for (var i = 0; i < keys.length; i++) if (words.indexOf(keys[i]) > -1) return keys[i] === "diag" || keys[i] === "diagnostic" ? "diagnostics" : keys[i];
+    }
+    return "ask";
+  }
+
+  /* Open-ended questions: the page asks Claude through the sample capability. */
+  var convo = [], samplePromise = null;
+  function getSample() {
+    if (!samplePromise) {
+      samplePromise = (window.claude && typeof window.claude.use === "function")
+        ? window.claude.use("sample").then(function (s) { return s || null; }, function () { return null; })
+        : Promise.resolve(null);
+    }
+    return samplePromise;
+  }
+  function persona(short) {
+    var now = new Date();
+    if (short) return "You are Lumen, a calm voice assistant that sounds like a Formula 1 race engineer on the radio: short, steady, understated calls, never claiming to be a real person. Always reply in English, in one to three short, plain sentences with no markdown, lists or emoji. If you are not sure of something, say so. You cannot look things up live. Local time: " + now.toLocaleString() + " (" + tz + ").";
+    return "You are Lumen, the calm, quick-witted voice of a household AI console. Your manner is that of a calm Formula 1 race engineer on the radio: short, steady and understated, sometimes using words like copy or understood, never theatrical, and never claiming to be a real person. Always reply in English. The person is talking to you out loud or typing casually, so answer the way a thoughtful friend would: plain, natural sentences, no markdown, no bullet points, no emoji. Keep it to one to three short sentences unless they clearly ask for more. If they greet you, greet them back briefly. If a question needs live information such as weather, news, prices or scores, say you cannot look things up live and share what you do know. Never claim to control real devices; this console is a demo. Current local time: " + now.toLocaleString() + " (" + tz + ").";
+  }
+  var askMsg = {
+    not_granted: "I need your permission to think for you. Ask again and approve the prompt, and I will answer.",
+    bad_key: "Your API key was rejected. Press API key, check it, and save it again.",
+    upstream_error: "The service did not answer. Check your internet connection and ask again.",
+    sampling_disabled: "Open questions are switched off for this account, so I can only run the built-in commands.",
+    not_declared: "Open questions are not enabled on this page.",
+    capability_disabled: "Open questions are not available in this view.",
+    capability_removed: "Open questions are not supported by this viewer yet.",
+    rate_limited: "That was too many questions too fast, or your Claude usage limit is reached. Give it a moment and ask again.",
+    session_expired: "Your session expired. Sign in again and ask once more.",
+    refused: "I cannot help with that one.",
+    empty_completion: "I had nothing to say to that. Try rephrasing it."
+  };
+  /* Standalone copy (opened from a file, outside Claude): answers through the person's own API key. */
+  var standalone = !(window.claude && typeof window.claude.use === "function");
+  function getKey() { try { return localStorage.getItem("lumen.apikey") || ""; } catch (e) { return ""; } }
+  async function callApi(key, hist, onText) {
+    var resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({ model: "claude-haiku-5-5", max_tokens: 400, stream: true, system: persona(), messages: hist })
+    });
+    if (!resp.ok) throw { code: resp.status === 401 || resp.status === 403 ? "bad_key" : resp.status === 429 ? "rate_limited" : "upstream_error" };
+    var reader = resp.body.getReader(), dec = new TextDecoder(), buf = "", text = "";
+    for (;;) {
+      var r = await reader.read();
+      if (r.done) break;
+      buf += dec.decode(r.value, { stream: true });
+      var parts = buf.split("\n\n"); buf = parts.pop();
+      for (var i = 0; i < parts.length; i++) {
+        var m = parts[i].match(/^data: (.*)$/m);
+        if (!m) continue;
+        try {
+          var j = JSON.parse(m[1]);
+          if (j.type === "content_block_delta" && j.delta && j.delta.text) { text += j.delta.text; onText(text); }
+        } catch (e) {}
+      }
+    }
+    return text;
+  }
+  async function askClaude(q) {
+    var sample = await getSample();
+    var key = sample ? "" : getKey();
+    if (!sample && !key && !brain.engine && standalone && savedBrain()) {
+      var w = line("Waking the on-device brain...", "s");
+      try {
+        await loadBrain(savedBrain(), function (p) { w.textContent = (p && p.text) || "Loading..."; });
+        w.textContent = "On-device brain ready.";
+      } catch (e) { w.textContent = "The on-device brain could not start: " + ((e && e.message) || e); }
+    }
+    var local = !sample && !key && !!brain.engine;
+    if (!sample && !key && !local) {
+      await say(standalone
+        ? "To answer open questions here I need a brain. Press On-device brain for a free one that runs on this computer, or add an API key. The built-in commands work without either."
+        : "Open questions need Claude access, which this view does not have. The built-in commands still work: type help.");
+      return;
+    }
+    var d = line("Thinking...", "a");
+    var hist = convo.slice(-12).concat([{ role: "user", content: q }]);
+    var show = function (t) { if (t) { d.textContent = t; setState("speaking"); log.scrollTop = log.scrollHeight; } };
+    try {
+      var text;
+      if (sample) {
+        var msgs = hist.slice();
+        msgs[0] = { role: "user", content: persona() + "\n\n" + msgs[0].content };
+        var res = await sample(msgs, { modelTier: "quick", cache: false, onText: function (u) { if (u) show(u.text); } });
+        text = res && res.text;
+      } else if (local) {
+        text = await askLocal(hist, show);
+      } else {
+        text = await callApi(key, hist, show);
+      }
+      var out = (text || "").trim() || "I have nothing to add to that.";
+      d.textContent = out;
+      speak(out);
+      convo.push({ role: "user", content: q }, { role: "assistant", content: out });
+      while (convo.length > 24) convo.splice(0, 2);
+    } catch (e) {
+      var code = e && e.code, partial = e && e.text;
+      if (local && !code) d.textContent = "The on-device brain hit an error. Try again, or pick a smaller one in On-device brain.";
+      else if (code === "refused" || !partial) d.textContent = askMsg[code] || "I lost the connection while thinking. Ask me again.";
+      else d.textContent = partial + " (cut off)";
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+
+  async function run(q) {
+    if (busy) return;
+    q = q.trim(); if (!q) return;
+    stopSpeaking();
+    var key = resolve(q);
+    if (!powered) {
+      if (key === "wake") { busy = true; line(q, "u"); await doPowerOn(); busy = false; }
+      return;
+    }
+    busy = true;
+    line(q, "u");
+    setState("working");
+    if (key === "ask") {
+      await askClaude(q);
+    } else if (key === "shutdown") {
+      await say("Shutting down. " + wakeHelp());
+      doPowerOff();
+    } else if (key === "wake") {
+      await say("I am already online.");
+    } else {
+      await sleep(key === "clear" ? 0 : 450);
+      var out = await commands[key]();
+      for (var i = 0; i < out.length; i++) { await say(out[i]); await sleep(120); }
+    }
+    if (powered) setState(document.activeElement === cmd ? "listening" : "standby");
+    busy = false;
+  }
+  form.addEventListener("submit", function (e) { e.preventDefault(); var v = cmd.value; cmd.value = ""; run(v); });
+  document.querySelectorAll(".chip[data-c]").forEach(function (c) { c.addEventListener("click", function () { run(c.dataset.c); }); });
+  cmd.addEventListener("focus", function () { if (!busy) setState("listening"); });
+  cmd.addEventListener("blur", function () { if (!busy) setState("standby"); });
+
+  /* ---------- voice: microphone, speech commands, audio file ---------- */
+  var micBtn = $("#mic"), fileBtn = $("#filebtn"), fileIn = $("#file"), heard = $("#heard"), rec = null, fileSrc = null;
+  function ensureCtx() {
+    if (!audio.ctx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) throw new Error("Web Audio is not available");
+      audio.ctx = new AC();
+      audio.an = audio.ctx.createAnalyser();
+      audio.an.fftSize = 256;
+      audio.an.smoothingTimeConstant = 0.7;
+      audio.data = new Uint8Array(audio.an.frequencyBinCount);
+      audio.clapAn = audio.ctx.createAnalyser();
+      audio.clapAn.fftSize = 1024;
+      audio.clapAn.smoothingTimeConstant = 0;
+    }
+    if (audio.ctx.state === "suspended") audio.ctx.resume();
+  }
+  function stopRecog() {
+    if (rec) { var r = rec; rec = null; r.onend = null; r.onresult = null; r.onerror = null; try { r.stop(); } catch (e) {} }
+    heard.textContent = "";
+  }
+  function startRecog() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return false;
+    try {
+      rec = new SR();
+      rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
+      rec.onresult = function (e) {
+        if (isTalking()) return;
+        var interim = "";
+        for (var i = e.resultIndex; i < e.results.length; i++) {
+          var r = e.results[i];
+          if (r.isFinal) { var t = r[0].transcript.trim(); heard.textContent = ""; if (t) run(t); }
+          else interim += r[0].transcript;
+        }
+        if (interim) heard.textContent = "Hearing: " + interim;
+      };
+      rec.onend = function () { if ((audio.mode === "mic" || audio.mode === "talk") && rec) { try { rec.start(); } catch (e) {} } };
+      rec.onsoundstart = rec.onspeechstart = function () { audio.talking = true; };
+      rec.onsoundend = rec.onspeechend = rec.onaudioend = function () { audio.talking = false; };
+      rec.onerror = function (e) {
+        if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "language-not-supported") {
+          stopRecog();
+          line("Speech-to-text is unavailable here. Type commands instead.", "s");
+        } else if (e.error === "audio-capture") {
+          stopRecog();
+          line("The microphone is busy with another recording. On this phone, switch Mic mode between React + clap and Talk instead of using both.", "s");
+        }
+      };
+      rec.start();
+      return true;
+    } catch (e) { rec = null; return false; }
+  }
+  function stopAudio() {
+    stopRecog();
+    if (fileSrc) { fileSrc.onended = null; try { fileSrc.stop(); } catch (e) {} try { fileSrc.disconnect(); } catch (e) {} fileSrc = null; }
+    if (audio.src) { try { audio.src.disconnect(); } catch (e) {} audio.src = null; }
+    if (audio.an) { try { audio.an.disconnect(); } catch (e) {} }
+    if (audio.stream) { audio.stream.getTracks().forEach(function (t) { t.stop(); }); audio.stream = null; }
+    audio.on = false; audio.mode = ""; audio.talking = false;
+    micBtn.setAttribute("aria-pressed", "false"); micBtn.textContent = "Voice on";
+    fileBtn.textContent = "Play audio file";
+    paintHint();
+    if (!busy) setState(document.activeElement === cmd ? "listening" : "standby");
+  }
+  /* Android lets only one thing record at a time, so there the mic has two modes:
+     "listen" = core reacts to sound and claps work (microphone stream),
+     "talk"   = speech recognition runs spoken commands (core pulses while it hears you). */
+  var isAndroid = /Android/i.test(navigator.userAgent || "");
+  var micMode = "listen";
+  try { if (localStorage.getItem("lumen.micmode") === "talk") micMode = "talk"; } catch (e) {}
+  var modeBtn = $("#modebtn");
+  function paintMode() {
+    modeBtn.hidden = !isAndroid;
+    modeBtn.textContent = "Mic mode: " + (micMode === "talk" ? "Talk" : "React + clap");
+  }
+  paintMode();
+  modeBtn.addEventListener("click", function () {
+    micMode = micMode === "talk" ? "listen" : "talk";
+    try { localStorage.setItem("lumen.micmode", micMode); } catch (e) {}
+    paintMode();
+    var wasOn = audio.mode === "mic" || audio.mode === "talk";
+    if (wasOn) { stopAudio(); toggleMic(); }
+    else line(micMode === "talk" ? "Talk mode: spoken commands, no claps." : "React + clap mode: the core follows your voice and claps work, but spoken commands are off.", "s");
+  });
+  async function toggleMic() {
+    if (audio.mode === "mic" || audio.mode === "talk") { stopAudio(); line("Microphone off.", "s"); return; }
+    stopAudio();
+    if (isAndroid && micMode === "talk") {
+      if (!startRecog()) { line("Speech recognition is not available in this browser.", "s"); return; }
+      audio.mode = "talk"; audio.on = true;
+      micBtn.setAttribute("aria-pressed", "true"); micBtn.textContent = "Voice off";
+      paintHint();
+      line("Talk mode. Speak and I will act on what you say. The core pulses while it hears you. Claps are off in this mode.", "s");
+      ensureLoop();
+      return;
+    }
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("unsupported");
+      ensureCtx();
+      var st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      audio.stream = st;
+      audio.src = audio.ctx.createMediaStreamSource(st);
+      audio.src.connect(audio.an);
+      audio.src.connect(audio.clapAn);
+      audio.mode = "mic"; audio.on = true;
+      micBtn.setAttribute("aria-pressed", "true"); micBtn.textContent = "Voice off";
+      paintHint();
+      var stt = isAndroid ? false : startRecog();
+      line(stt ? "Microphone live. The core reacts to your voice, and spoken commands run as typed ones."
+        : isAndroid ? "Microphone live. The core follows your voice and claps work. For spoken commands, switch Mic mode to Talk."
+        : "Microphone live. The core reacts to your voice. Speech-to-text is not supported in this browser, so commands still need typing.", "s");
+      ensureLoop();
+    } catch (e) {
+      audio.on = false; audio.mode = "";
+      line("This view cannot open your microphone (the page sandbox blocks it, or access was denied). Use Play audio file to test the reaction, or open the standalone copy on your computer.", "s");
+    }
+  }
+  async function playFile(f) {
+    stopAudio();
+    try {
+      ensureCtx();
+      var buf = await audio.ctx.decodeAudioData(await f.arrayBuffer());
+      var src = audio.ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(audio.an);
+      src.connect(audio.clapAn);
+      audio.an.connect(audio.ctx.destination);
+      fileSrc = src; audio.mode = "file"; audio.on = true;
+      fileBtn.textContent = "Stop audio";
+      src.onended = function () { if (fileSrc === src) { fileSrc = null; stopAudio(); line("Playback finished.", "s"); } };
+      src.start();
+      line("Playing " + f.name + ". Watch the core follow the sound.", "s");
+      ensureLoop();
+    } catch (e) {
+      stopAudio();
+      line("Could not decode that file. Try an MP3, WAV or M4A.", "s");
+    }
+  }
+  micBtn.addEventListener("click", toggleMic);
+  fileBtn.addEventListener("click", function () { if (audio.mode === "file") { stopAudio(); line("Playback stopped.", "s"); } else fileIn.click(); });
+  fileIn.addEventListener("change", function () { var f = fileIn.files && fileIn.files[0]; fileIn.value = ""; if (f) playFile(f); });
+
+  /* ---------- spoken replies (text-to-speech) ---------- */
+  var speakOn = true, speakCount = 0, speechEndAt = -1e9;
+  try { if (localStorage.getItem("lumen.speak") === "off") speakOn = false; } catch (e) {}
+  var canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+  var speakBtn = $("#speakbtn"), voiceBtn = $("#voicebtn"), voices = [], voicePref = "";
+  try { voicePref = localStorage.getItem("lumen.voice") || ""; } catch (e) {}
+  function loadVoices() {
+    try { voices = window.speechSynthesis.getVoices().filter(function (x) { return /^en/i.test(x.lang); }); } catch (e) { voices = []; }
+  }
+  function pickVoice() {
+    if (!voices.length) return null;
+    var chosen = voices.filter(function (x) { return x.name === voicePref; })[0];
+    if (chosen) return chosen;
+    var gb = voices.filter(function (x) { return /en[-_]GB/i.test(x.lang); });
+    var male = gb.filter(function (x) { return /male|daniel|oliver|arthur|ryan|george|thomas/i.test(x.name) && !/female/i.test(x.name); });
+    return male[0] || gb[0] || voices.filter(function (x) { return /en[-_]US/i.test(x.lang); })[0] || voices[0];
+  }
+  function paintVoice() {
+    voiceBtn.hidden = !canSpeak || voices.length < 2;
+    var v = pickVoice();
+    voiceBtn.textContent = "Voice: " + (v ? (v.name.length > 22 ? v.name.slice(0, 21) + "…" : v.name) : "auto");
+  }
+  function isTalking() { return speakCount > 0 || performance.now() - speechEndAt < 600; }
+  function speak(text) {
+    if (!speakOn || !canSpeak || !text) return;
+    if (/[฀-๿Ѐ-ӿ؀-ۿ぀-ヿ一-鿿가-힯]/.test(String(text))) return;   // English only: stay silent for other scripts
+    var parts = String(text).match(/[^.!?\n]+[.!?]*/g) || [String(text)];
+    var v = pickVoice();
+    parts.forEach(function (p) {
+      p = p.trim();
+      if (!p) return;
+      var u = new SpeechSynthesisUtterance(p);
+      if (v) u.voice = v;
+      u.lang = v ? v.lang : "en-GB";
+      u.rate = 0.98; u.pitch = 0.85;
+      var done = function () { speakCount = Math.max(0, speakCount - 1); speechEndAt = performance.now(); };
+      u.onend = done; u.onerror = done;
+      speakCount++;
+      try { window.speechSynthesis.speak(u); } catch (e) { done(); }
+    });
+  }
+  function stopSpeaking() {
+    if (!canSpeak) return;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    speakCount = 0; speechEndAt = performance.now();
+  }
+  function paintSpeak() {
+    speakBtn.setAttribute("aria-pressed", speakOn ? "true" : "false");
+    speakBtn.textContent = "Voice reply: " + (speakOn ? "on" : "off");
+  }
+  if (!canSpeak) speakBtn.hidden = true; else paintSpeak();
+  if (canSpeak) {
+    loadVoices(); paintVoice();
+    if ("onvoiceschanged" in window.speechSynthesis) window.speechSynthesis.onvoiceschanged = function () { loadVoices(); paintVoice(); };
+  } else { voiceBtn.hidden = true; }
+  voiceBtn.addEventListener("click", function () {
+    if (voices.length < 2) return;
+    var cur = pickVoice(), i = voices.indexOf(cur);
+    var next = voices[(i + 1) % voices.length];
+    voicePref = next.name;
+    try { localStorage.setItem("lumen.voice", voicePref); } catch (e) {}
+    paintVoice();
+    stopSpeaking();
+    speak("Copy. This is how I sound.");
+  });
+  speakBtn.addEventListener("click", function () {
+    speakOn = !speakOn;
+    try { localStorage.setItem("lumen.speak", speakOn ? "on" : "off"); } catch (e) {}
+    paintSpeak();
+    if (speakOn) speak("Voice replies on."); else stopSpeaking();
+  });
+  cv.addEventListener("click", stopSpeaking);
+
+  /* ---------- power: button, spoken command, handclap ---------- */
+  var powerBtn = $("#power"), clapBtn = $("#clapmode"), sensIn = $("#sens");
+  var sideEls = document.querySelectorAll(".col:not(.core), .console");
+  function wakeHelp() {
+    var how = audio.mode === "mic" ? "Clap " + (clapMode === "single" ? "once" : "twice") + " or press Power"
+      : audio.mode === "talk" ? "Say wake up or press Power" : "Press Power";
+    return how + " to wake me.";
+  }
+  function paintHint() {
+    var h = $("#wakehint");
+    if (powered) { h.hidden = true; return; }
+    h.hidden = false; h.textContent = "Offline. " + wakeHelp();
+  }
+  function doPowerOff() {
+    powered = false; ptarget = 0.04;
+    $(".wrap").classList.add("off");
+    sideEls.forEach(function (el) { el.inert = true; });
+    powerBtn.setAttribute("aria-pressed", "false");
+    $("#out").textContent = "0%";
+    setState("standby"); paintHint(); ensureLoop();
+  }
+  async function doPowerOn() {
+    powered = true; ptarget = 1;
+    $(".wrap").classList.remove("off");
+    sideEls.forEach(function (el) { el.inert = false; });
+    powerBtn.setAttribute("aria-pressed", "true");
+    refreshMods(); paintHint(); setState("working"); ensureLoop();
+    line("Core spinning up...", "s");
+    await sleep(700);
+    await say("Lumen online. All systems green. " + greeting() + ".");
+    setState(document.activeElement === cmd ? "listening" : "standby");
+  }
+  async function togglePower(src) {
+    if (busy) return;
+    busy = true;
+    try {
+      line(src, "s");
+      if (powered) { await say("Shutting down. " + wakeHelp()); doPowerOff(); }
+      else await doPowerOn();
+    } finally { busy = false; }
+  }
+  powerBtn.addEventListener("click", function () { togglePower("Power button pressed."); });
+  clapBtn.addEventListener("click", function () {
+    clapMode = clapMode === "double" ? "single" : "double";
+    clapBtn.textContent = "Clap: " + clapMode;
+    clapTimes = []; paintHint();
+  });
+  sensIn.addEventListener("input", function () { sens = +sensIn.value || 5; });
+
+  /* ---------- API key (standalone copy only) ---------- */
+  var keyBtn = $("#keybtn"), keyBox = $("#keybox"), keyIn = $("#apikey");
+  function paintKeyBtn() { keyBtn.textContent = getKey() ? "API key: set" : "API key"; }
+  if (standalone) { keyBtn.hidden = false; paintKeyBtn(); }
+  keyBtn.addEventListener("click", function () { keyBox.hidden = !keyBox.hidden; if (!keyBox.hidden) keyIn.focus(); });
+  $("#keysave").addEventListener("click", function () {
+    var v = keyIn.value.trim();
+    if (!v) return;
+    try { localStorage.setItem("lumen.apikey", v); } catch (e) { line("This browser would not store the key. Open the file in Chrome and try again.", "s"); return; }
+    keyIn.value = ""; keyBox.hidden = true; paintKeyBtn();
+    line("API key saved. Ask me anything.", "s");
+  });
+  $("#keyclear").addEventListener("click", function () {
+    try { localStorage.removeItem("lumen.apikey"); } catch (e) {}
+    keyIn.value = ""; paintKeyBtn();
+    line("API key removed.", "s");
+  });
+
+  /* ---------- on-device brain: a small free model that runs in the browser (standalone only) ---------- */
+  var brain = { engine: null, id: "", loading: null };
+  var brainBtn = $("#brainbtn"), brainBox = $("#brainbox"), brainSel = $("#brainsel"), brainGo = $("#braingo"), brainOff = $("#brainoff"), brainProg = $("#brainprog"), brainNote = $("#brainnote");
+  var brainNoteDefault = brainNote.textContent;
+  function savedBrain() { try { return localStorage.getItem("lumen.brain") || ""; } catch (e) { return ""; } }
+  function saveBrain(v) { try { if (v) localStorage.setItem("lumen.brain", v); else localStorage.removeItem("lumen.brain"); } catch (e) {} }
+  async function f16ok() {
+    try { var a = await navigator.gpu.requestAdapter(); return !!(a && a.features && a.features.has("shader-f16")); } catch (e) { return false; }
+  }
+  function loadBrain(base, onProgress) {
+    if (brain.loading) return brain.loading;
+    brain.loading = (async function () {
+      if (!navigator.gpu) throw new Error("This browser has no WebGPU. Use a recent Chrome on a computer.");
+      var wl;
+      try { wl = await import("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm"); }
+      catch (e) { wl = await import("https://esm.run/@mlc-ai/web-llm"); }
+      var id = base + ((await f16ok()) ? "-q4f16_1-MLC" : "-q4f32_1-MLC");
+      var cfg = Object.assign({}, wl.prebuiltAppConfig, { cacheBackend: "indexeddb" });
+      var engine = await wl.CreateMLCEngine(id, { appConfig: cfg, initProgressCallback: function (p) { if (onProgress) onProgress(p); } });
+      brain.engine = engine; brain.id = base; saveBrain(base);
+      return engine;
+    })();
+    var p = brain.loading;
+    p.then(function () { brain.loading = null; }, function () { brain.loading = null; });
+    return p;
+  }
+  async function askLocal(hist, onText) {
+    var msgs = [{ role: "system", content: persona(true) }].concat(hist.slice(-5));
+    var chunks = await brain.engine.chat.completions.create({ messages: msgs, stream: true, max_tokens: 260, temperature: 0.7 });
+    var t = "";
+    for await (var c of chunks) {
+      t += (c.choices && c.choices[0] && c.choices[0].delta && c.choices[0].delta.content) || "";
+      onText(t);
+    }
+    return t;
+  }
+  function paintBrain() {
+    brainBtn.textContent = brain.engine ? "On-device brain: on" : "On-device brain";
+    brainOff.hidden = !(brain.engine || savedBrain());
+  }
+  if (standalone) { brainBtn.hidden = false; paintBrain(); }
+  brainBtn.addEventListener("click", function () {
+    brainBox.hidden = !brainBox.hidden;
+    if (!brainBox.hidden && !navigator.gpu) {
+      brainGo.disabled = true;
+      brainNote.textContent = "This browser has no WebGPU, so the on-device brain cannot run here. Try a recent version of Chrome on a computer with a graphics chip.";
+    }
+  });
+  brainGo.addEventListener("click", async function () {
+    brainGo.disabled = true; brainProg.hidden = false; brainProg.value = 0;
+    brainNote.textContent = "Starting. The first download can take several minutes on slow internet. Keep this tab open.";
+    try {
+      await loadBrain(brainSel.value, function (p) {
+        brainProg.value = Math.round(((p && p.progress) || 0) * 100);
+        if (p && p.text) brainNote.textContent = p.text;
+      });
+      brainNote.textContent = "Ready. Ask me anything. Everything now runs on this computer.";
+      line("On-device brain ready. It is free, private and works offline.", "s");
+    } catch (e) {
+      brainNote.textContent = "Could not start it: " + ((e && e.message) || e) + ". Try the Small option, or check you are using Chrome.";
+    }
+    brainGo.disabled = false; brainProg.hidden = true; paintBrain();
+  });
+  brainOff.addEventListener("click", async function () {
+    try { if (brain.engine && brain.engine.unload) await brain.engine.unload(); } catch (e) {}
+    brain.engine = null; saveBrain(""); paintBrain();
+    brainNote.textContent = brainNoteDefault;
+    line("On-device brain turned off. Downloaded files stay in this browser.", "s");
+  });
+
+  line(greeting() + ". Lumen core online. All sensor nodes responding.", "a");
+  line("Ask me anything in your own words, or tap a shortcut below.", "s");
+  if (standalone && !getKey() && !savedBrain()) line("To answer open questions in this standalone copy, press On-device brain for a free model that runs on this computer, or add an API key.", "s");
+})();
+</script>
+
+<script>
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  window.addEventListener("load", function () { navigator.serviceWorker.register("sw.js").catch(function () {}); });
+}
+</script>
+</body>
+</html>
