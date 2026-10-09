@@ -227,6 +227,9 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       <button class="chip" type="button" data-c="time">Time</button>
       <button class="chip" type="button" data-c="help">Help</button>
       <button class="chip" type="button" id="mic" aria-pressed="false">Voice on</button>
+      <button class="chip" type="button" id="modebtn" hidden>Mic mode: React + clap</button>
+      <button class="chip" type="button" id="speakbtn" aria-pressed="true">Voice reply: on</button>
+      <button class="chip" type="button" id="voicebtn" hidden>Voice: auto</button>
       <button class="chip" type="button" id="filebtn">Play audio file</button>
       <button class="chip" type="button" id="brainbtn" hidden>On-device brain</button>
       <button class="chip" type="button" id="keybtn" hidden>API key</button>
@@ -466,7 +469,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   var clapBuf = null, basePeak = 0.02, lastClap = -1e9, clapTimes = [], clapMode = "double", sens = 5, infoTimer = 0;
   function clapThreshold() { return 0.74 - 0.065 * sens; }
   function detectClap(now) {
-    if (!audio.clapAn) return;
+    if (!audio.clapAn || isTalking()) return;
     if (!clapBuf || clapBuf.length !== audio.clapAn.fftSize) clapBuf = new Float32Array(audio.clapAn.fftSize);
     audio.clapAn.getFloatTimeDomainData(clapBuf);
     var peak = 0, sq = 0;
@@ -482,6 +485,12 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     if (clapMode === "single" || clapTimes.length >= 2) { clapTimes = []; togglePower("Clap detected."); }
   }
   function sampleAudio(now) {
+    if (audio.on && audio.mode === "talk") {               // no audio stream here: pulse while speech recognition hears sound
+      var hearing = audio.talking && !isTalking();
+      audio.level += ((hearing ? 0.35 + 0.3 * Math.abs(Math.sin(now / 95)) : 0) - audio.level) * 0.3;
+      for (var j = 0; j < audio.bins.length; j++) audio.bins[j] += ((hearing ? Math.random() * 0.6 : 0) - audio.bins[j]) * 0.4;
+      return;
+    }
     if (!audio.on || !audio.an) { audio.level *= 0.8; for (var i = 0; i < audio.bins.length; i++) audio.bins[i] *= 0.8; return; }
     audio.an.getByteFrequencyData(audio.data);
     var d = audio.data, sum = 0, n = 0;
@@ -538,6 +547,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, reduce ? 0 : ms); }); }
   async function say(text) {
     var d = line("", "a");
+    speak(text);
     if (reduce) { d.textContent = text; log.scrollTop = log.scrollHeight; return; }
     setState("speaking");
     for (var i = 1; i <= text.length; i++) {
@@ -553,7 +563,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   function activeList() { return Object.keys(mods).filter(function (k) { return mods[k]; }); }
 
   var commands = {
-    help: function () { return ["Ask me anything the way you would ask a person: why the sky is blue, what to cook tonight, how to say thanks in French.", "Quick commands: status, scan, diagnostics, time, date, modules, clear, shut down.", "With the mic on, clap twice to power me off or back on. The Power button always works."]; },
+    help: function () { return ["Ask me anything the way you would ask a person: why the sky is blue, what to cook tonight, how to say thanks in French.", "Quick commands: status, scan, diagnostics, time, date, modules, clear, shut down.", "With the mic on, clap twice to power me off or back on. The Power button always works.", "I speak my answers out loud. Tap the glowing core to make me stop, or use Voice reply to turn it off."]; },
     status: function () {
       var a = activeList();
       return ["All systems nominal. " + a.length + " of 4 modules active" + (a.length ? ": " + a.join(", ") + "." : "."),
@@ -575,7 +585,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       return ["Scan complete. 12 of 12 nodes responding. No anomalies in the last 24 hours."];
     },
     clear: function () { log.textContent = ""; return []; },
-    hello: function () { return [greeting() + ". Lumen core is online and listening."]; },
+    hello: function () { return ["Copy. " + greeting() + ". Lumen is online and listening."]; },
     who: function () { return ["I am Lumen, the interface for this household's systems. This build is a demo and controls nothing real."]; }
   };
   /* Short utterances map to built-in commands; everything else goes to Claude. */
@@ -608,8 +618,8 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   }
   function persona(short) {
     var now = new Date();
-    if (short) return "You are Lumen, a friendly voice assistant. Reply in one to three short, plain sentences with no markdown, lists or emoji. If you are not sure of something, say so. You cannot look things up live. Local time: " + now.toLocaleString() + " (" + tz + ").";
-    return "You are Lumen, the calm, quick-witted voice of a household AI console. The person is talking to you out loud or typing casually, so answer the way a thoughtful friend would: plain, natural sentences, no markdown, no bullet points, no emoji. Keep it to one to three short sentences unless they clearly ask for more. If they greet you, greet them back briefly. If a question needs live information such as weather, news, prices or scores, say you cannot look things up live and share what you do know. Never claim to control real devices; this console is a demo. Current local time: " + now.toLocaleString() + " (" + tz + ").";
+    if (short) return "You are Lumen, a calm voice assistant that sounds like a Formula 1 race engineer on the radio: short, steady, understated calls, never claiming to be a real person. Always reply in English, in one to three short, plain sentences with no markdown, lists or emoji. If you are not sure of something, say so. You cannot look things up live. Local time: " + now.toLocaleString() + " (" + tz + ").";
+    return "You are Lumen, the calm, quick-witted voice of a household AI console. Your manner is that of a calm Formula 1 race engineer on the radio: short, steady and understated, sometimes using words like copy or understood, never theatrical, and never claiming to be a real person. Always reply in English. The person is talking to you out loud or typing casually, so answer the way a thoughtful friend would: plain, natural sentences, no markdown, no bullet points, no emoji. Keep it to one to three short sentences unless they clearly ask for more. If they greet you, greet them back briefly. If a question needs live information such as weather, news, prices or scores, say you cannot look things up live and share what you do know. Never claim to control real devices; this console is a demo. Current local time: " + now.toLocaleString() + " (" + tz + ").";
   }
   var askMsg = {
     not_granted: "I need your permission to think for you. Ask again and approve the prompt, and I will answer.",
@@ -685,6 +695,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       }
       var out = (text || "").trim() || "I have nothing to add to that.";
       d.textContent = out;
+      speak(out);
       convo.push({ role: "user", content: q }, { role: "assistant", content: out });
       while (convo.length > 24) convo.splice(0, 2);
     } catch (e) {
@@ -699,6 +710,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   async function run(q) {
     if (busy) return;
     q = q.trim(); if (!q) return;
+    stopSpeaking();
     var key = resolve(q);
     if (!powered) {
       if (key === "wake") { busy = true; line(q, "u"); await doPowerOn(); busy = false; }
@@ -755,6 +767,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       rec = new SR();
       rec.continuous = true; rec.interimResults = true; rec.lang = navigator.language || "en-US";
       rec.onresult = function (e) {
+        if (isTalking()) return;
         var interim = "";
         for (var i = e.resultIndex; i < e.results.length; i++) {
           var r = e.results[i];
@@ -763,11 +776,16 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
         }
         if (interim) heard.textContent = "Hearing: " + interim;
       };
-      rec.onend = function () { if (audio.mode === "mic" && rec) { try { rec.start(); } catch (e) {} } };
+      rec.onend = function () { if ((audio.mode === "mic" || audio.mode === "talk") && rec) { try { rec.start(); } catch (e) {} } };
+      rec.onsoundstart = rec.onspeechstart = function () { audio.talking = true; };
+      rec.onsoundend = rec.onspeechend = rec.onaudioend = function () { audio.talking = false; };
       rec.onerror = function (e) {
         if (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "language-not-supported") {
           stopRecog();
-          line("Speech-to-text is unavailable here. The core still reacts to your voice; type commands instead.", "s");
+          line("Speech-to-text is unavailable here. Type commands instead.", "s");
+        } else if (e.error === "audio-capture") {
+          stopRecog();
+          line("The microphone is busy with another recording. On this phone, switch Mic mode between React + clap and Talk instead of using both.", "s");
         }
       };
       rec.start();
@@ -780,15 +798,44 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     if (audio.src) { try { audio.src.disconnect(); } catch (e) {} audio.src = null; }
     if (audio.an) { try { audio.an.disconnect(); } catch (e) {} }
     if (audio.stream) { audio.stream.getTracks().forEach(function (t) { t.stop(); }); audio.stream = null; }
-    audio.on = false; audio.mode = "";
+    audio.on = false; audio.mode = ""; audio.talking = false;
     micBtn.setAttribute("aria-pressed", "false"); micBtn.textContent = "Voice on";
     fileBtn.textContent = "Play audio file";
     paintHint();
     if (!busy) setState(document.activeElement === cmd ? "listening" : "standby");
   }
+  /* Android lets only one thing record at a time, so there the mic has two modes:
+     "listen" = core reacts to sound and claps work (microphone stream),
+     "talk"   = speech recognition runs spoken commands (core pulses while it hears you). */
+  var isAndroid = /Android/i.test(navigator.userAgent || "");
+  var micMode = "listen";
+  try { if (localStorage.getItem("lumen.micmode") === "talk") micMode = "talk"; } catch (e) {}
+  var modeBtn = $("#modebtn");
+  function paintMode() {
+    modeBtn.hidden = !isAndroid;
+    modeBtn.textContent = "Mic mode: " + (micMode === "talk" ? "Talk" : "React + clap");
+  }
+  paintMode();
+  modeBtn.addEventListener("click", function () {
+    micMode = micMode === "talk" ? "listen" : "talk";
+    try { localStorage.setItem("lumen.micmode", micMode); } catch (e) {}
+    paintMode();
+    var wasOn = audio.mode === "mic" || audio.mode === "talk";
+    if (wasOn) { stopAudio(); toggleMic(); }
+    else line(micMode === "talk" ? "Talk mode: spoken commands, no claps." : "React + clap mode: the core follows your voice and claps work, but spoken commands are off.", "s");
+  });
   async function toggleMic() {
-    if (audio.mode === "mic") { stopAudio(); line("Microphone off.", "s"); return; }
+    if (audio.mode === "mic" || audio.mode === "talk") { stopAudio(); line("Microphone off.", "s"); return; }
     stopAudio();
+    if (isAndroid && micMode === "talk") {
+      if (!startRecog()) { line("Speech recognition is not available in this browser.", "s"); return; }
+      audio.mode = "talk"; audio.on = true;
+      micBtn.setAttribute("aria-pressed", "true"); micBtn.textContent = "Voice off";
+      paintHint();
+      line("Talk mode. Speak and I will act on what you say. The core pulses while it hears you. Claps are off in this mode.", "s");
+      ensureLoop();
+      return;
+    }
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("unsupported");
       ensureCtx();
@@ -800,8 +847,10 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       audio.mode = "mic"; audio.on = true;
       micBtn.setAttribute("aria-pressed", "true"); micBtn.textContent = "Voice off";
       paintHint();
-      var stt = startRecog();
-      line(stt ? "Microphone live. The core reacts to your voice, and spoken commands run as typed ones." : "Microphone live. The core reacts to your voice. Speech-to-text is not supported in this browser, so commands still need typing.", "s");
+      var stt = isAndroid ? false : startRecog();
+      line(stt ? "Microphone live. The core reacts to your voice, and spoken commands run as typed ones."
+        : isAndroid ? "Microphone live. The core follows your voice and claps work. For spoken commands, switch Mic mode to Talk."
+        : "Microphone live. The core reacts to your voice. Speech-to-text is not supported in this browser, so commands still need typing.", "s");
       ensureLoop();
     } catch (e) {
       audio.on = false; audio.mode = "";
@@ -833,12 +882,86 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   fileBtn.addEventListener("click", function () { if (audio.mode === "file") { stopAudio(); line("Playback stopped.", "s"); } else fileIn.click(); });
   fileIn.addEventListener("change", function () { var f = fileIn.files && fileIn.files[0]; fileIn.value = ""; if (f) playFile(f); });
 
+  /* ---------- spoken replies (text-to-speech) ---------- */
+  var speakOn = true, speakCount = 0, speechEndAt = -1e9;
+  try { if (localStorage.getItem("lumen.speak") === "off") speakOn = false; } catch (e) {}
+  var canSpeak = "speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined";
+  var speakBtn = $("#speakbtn"), voiceBtn = $("#voicebtn"), voices = [], voicePref = "";
+  try { voicePref = localStorage.getItem("lumen.voice") || ""; } catch (e) {}
+  function loadVoices() {
+    try { voices = window.speechSynthesis.getVoices().filter(function (x) { return /^en/i.test(x.lang); }); } catch (e) { voices = []; }
+  }
+  function pickVoice() {
+    if (!voices.length) return null;
+    var chosen = voices.filter(function (x) { return x.name === voicePref; })[0];
+    if (chosen) return chosen;
+    var gb = voices.filter(function (x) { return /en[-_]GB/i.test(x.lang); });
+    var male = gb.filter(function (x) { return /male|daniel|oliver|arthur|ryan|george|thomas/i.test(x.name) && !/female/i.test(x.name); });
+    return male[0] || gb[0] || voices.filter(function (x) { return /en[-_]US/i.test(x.lang); })[0] || voices[0];
+  }
+  function paintVoice() {
+    voiceBtn.hidden = !canSpeak || voices.length < 2;
+    var v = pickVoice();
+    voiceBtn.textContent = "Voice: " + (v ? (v.name.length > 22 ? v.name.slice(0, 21) + "…" : v.name) : "auto");
+  }
+  function isTalking() { return speakCount > 0 || performance.now() - speechEndAt < 600; }
+  function speak(text) {
+    if (!speakOn || !canSpeak || !text) return;
+    if (/[฀-๿Ѐ-ӿ؀-ۿ぀-ヿ一-鿿가-힯]/.test(String(text))) return;   // English only: stay silent for other scripts
+    var parts = String(text).match(/[^.!?\n]+[.!?]*/g) || [String(text)];
+    var v = pickVoice();
+    parts.forEach(function (p) {
+      p = p.trim();
+      if (!p) return;
+      var u = new SpeechSynthesisUtterance(p);
+      if (v) u.voice = v;
+      u.lang = v ? v.lang : "en-GB";
+      u.rate = 0.98; u.pitch = 0.85;
+      var done = function () { speakCount = Math.max(0, speakCount - 1); speechEndAt = performance.now(); };
+      u.onend = done; u.onerror = done;
+      speakCount++;
+      try { window.speechSynthesis.speak(u); } catch (e) { done(); }
+    });
+  }
+  function stopSpeaking() {
+    if (!canSpeak) return;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    speakCount = 0; speechEndAt = performance.now();
+  }
+  function paintSpeak() {
+    speakBtn.setAttribute("aria-pressed", speakOn ? "true" : "false");
+    speakBtn.textContent = "Voice reply: " + (speakOn ? "on" : "off");
+  }
+  if (!canSpeak) speakBtn.hidden = true; else paintSpeak();
+  if (canSpeak) {
+    loadVoices(); paintVoice();
+    if ("onvoiceschanged" in window.speechSynthesis) window.speechSynthesis.onvoiceschanged = function () { loadVoices(); paintVoice(); };
+  } else { voiceBtn.hidden = true; }
+  voiceBtn.addEventListener("click", function () {
+    if (voices.length < 2) return;
+    var cur = pickVoice(), i = voices.indexOf(cur);
+    var next = voices[(i + 1) % voices.length];
+    voicePref = next.name;
+    try { localStorage.setItem("lumen.voice", voicePref); } catch (e) {}
+    paintVoice();
+    stopSpeaking();
+    speak("Copy. This is how I sound.");
+  });
+  speakBtn.addEventListener("click", function () {
+    speakOn = !speakOn;
+    try { localStorage.setItem("lumen.speak", speakOn ? "on" : "off"); } catch (e) {}
+    paintSpeak();
+    if (speakOn) speak("Voice replies on."); else stopSpeaking();
+  });
+  cv.addEventListener("click", stopSpeaking);
+
   /* ---------- power: button, spoken command, handclap ---------- */
   var powerBtn = $("#power"), clapBtn = $("#clapmode"), sensIn = $("#sens");
   var sideEls = document.querySelectorAll(".col:not(.core), .console");
   function wakeHelp() {
-    var clap = audio.mode === "mic" ? "Clap " + (clapMode === "single" ? "once" : "twice") + " or press Power" : "Press Power";
-    return clap + " to wake me.";
+    var how = audio.mode === "mic" ? "Clap " + (clapMode === "single" ? "once" : "twice") + " or press Power"
+      : audio.mode === "talk" ? "Say wake up or press Power" : "Press Power";
+    return how + " to wake me.";
   }
   function paintHint() {
     var h = $("#wakehint");
@@ -861,7 +984,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     refreshMods(); paintHint(); setState("working"); ensureLoop();
     line("Core spinning up...", "s");
     await sleep(700);
-    await say("Lumen online. " + greeting() + ".");
+    await say("Lumen online. All systems green. " + greeting() + ".");
     setState(document.activeElement === cmd ? "listening" : "standby");
   }
   async function togglePower(src) {
