@@ -138,6 +138,9 @@ body::before {
 .keybox input { flex: 1 1 220px; min-width: 0; background: rgba(4,8,13,0.6); border: 1px solid var(--line-hot); color: var(--fg); font: 400 13px/1.4 var(--mono); padding: 8px 10px; }
 .keybox input:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .keybox .note { flex-basis: 100%; }
+.envtag { font: 500 10px/1 var(--display); letter-spacing: .16em; text-transform: uppercase; padding: 5px 8px; border: 1px solid var(--line-hot); color: var(--cyan); }
+.envtag.warn { border-color: var(--amber); color: var(--amber); }
+.envbanner { border: 1px solid var(--amber); color: var(--amber); padding: 10px 14px; font-size: 12px; background: rgba(255,180,84,0.06); overflow-wrap: anywhere; }
 .keybox select { flex: 1 1 220px; min-width: 0; background: rgba(4,8,13,0.9); border: 1px solid var(--line-hot); color: var(--fg); font: 400 13px/1.4 var(--mono); padding: 8px 10px; }
 .keybox select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .keybox progress { flex: 1 1 100%; height: 6px; accent-color: var(--cyan); }
@@ -174,9 +177,11 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
   <header class="bar">
     <div class="brand"><h1>Lumen</h1><span>Household intelligence / Core 4.2</span></div>
     <button class="chip" type="button" id="power" aria-pressed="true">Power</button>
+    <span class="envtag" id="envtag" title="Where Lumen is running">Browser</span>
     <div class="clock"><small id="tz">Local</small><b id="clock">--:--:--</b><small id="date">&nbsp;</small></div>
   </header>
 
+  <div class="envbanner" id="envbanner" role="status" hidden></div>
   <main class="grid">
     <section class="col" aria-label="System vitals">
       <div class="panel">
@@ -248,6 +253,7 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
         <option value="Llama-3.2-3B-Instruct">Smartest (about 2.3 GB)</option>
       </select>
       <button class="chip" type="button" id="braingo">Download and turn on</button>
+      <button class="chip" type="button" id="braintest">Check connection</button>
       <button class="chip" type="button" id="brainoff" hidden>Turn off</button>
       <progress id="brainprog" max="100" value="0" hidden></progress>
       <div class="note" id="brainnote">Runs entirely on this computer: no account, no key, no cost, and it keeps working offline after a one-time download. It needs Chrome on a computer with WebGPU. Its answers are simpler and less reliable than Claude's, so double-check anything important.</div>
@@ -1040,7 +1046,23 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       catch (e) { wl = await import("https://esm.run/@mlc-ai/web-llm"); }
       var id = base + ((await f16ok()) ? "-q4f16_1-MLC" : "-q4f32_1-MLC");
       var cfg = Object.assign({}, wl.prebuiltAppConfig, { cacheBackend: "indexeddb" });
-      var engine = await wl.CreateMLCEngine(id, { appConfig: cfg, initProgressCallback: function (p) { if (onProgress) onProgress(p); } });
+      // Backup source: the same model files served through jsDelivr, for networks that block raw.githubusercontent.com
+      var RAW = "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/", MIRROR = "https://cdn.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main/";
+      var cfgMirror = Object.assign({}, cfg, { model_list: (cfg.model_list || []).map(function (r) {
+        return (r && typeof r.model_lib === "string" && r.model_lib.indexOf(RAW) === 0) ? Object.assign({}, r, { model_lib: MIRROR + r.model_lib.slice(RAW.length) }) : r;
+      }) });
+      var make = function (c) { return wl.CreateMLCEngine(id, { appConfig: c, initProgressCallback: function (p) { if (onProgress) onProgress(p); } }); };
+      var engine;
+      try { engine = await make(cfg); }
+      catch (e1) {
+        if (!/fetch|network|store|load/i.test(String((e1 && e1.message) || e1))) throw e1;
+        if (onProgress) onProgress({ progress: 0, text: "First source unreachable. Trying the backup source..." });
+        try { engine = await make(cfgMirror); }
+        catch (e2) {
+          if (!/fetch|network|store|load/i.test(String((e2 && e2.message) || e2))) throw e2;   // a real error: show it as it is
+          var err = new Error("blocked"); err.blocked = true; throw err;
+        }
+      }
       brain.engine = engine; brain.id = base; saveBrain(base);
       return engine;
     })();
@@ -1081,9 +1103,41 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
       brainNote.textContent = "Ready. Ask me anything. Everything now runs on this computer.";
       line("On-device brain ready. It is free, private and works offline.", "s");
     } catch (e) {
-      brainNote.textContent = "Could not start it: " + ((e && e.message) || e) + ". Try the Small option, or check you are using Chrome.";
+      brainNote.textContent = (e && e.blocked)
+        ? (envHint() ? envHint() + " " : "") + "Could not download the brain. Your network is probably blocking one of the download sites (raw.githubusercontent.com, cdn.jsdelivr.net or huggingface.co), which school Wi-Fi often does. Try another network, such as mobile data. The Small option is the smallest download."
+        : "Could not start it: " + ((e && e.message) || e) + ". Try the Small option, or check you are using Chrome.";
     }
     brainGo.disabled = false; brainProg.hidden = true; paintBrain();
+  });
+  $("#braintest").addEventListener("click", async function () {
+    var btn = $("#braintest");
+    btn.disabled = true;
+    brainNote.style.whiteSpace = "pre-line";
+    brainNote.textContent = "Testing the download sites (a few kilobytes only)...";
+    var lib = "web-llm-models/v0_2_84/base/SmolLM2-360M-Instruct-q4f16_1_cs1k-webgpu.wasm";
+    var tests = [
+      ["raw.githubusercontent.com (model engine)", "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/" + lib, "HEAD"],
+      ["cdn.jsdelivr.net (backup for the engine)", "https://cdn.jsdelivr.net/gh/mlc-ai/binary-mlc-llm-libs@main/" + lib, "HEAD"],
+      ["huggingface.co (model data)", "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f16_1-MLC/resolve/main/mlc-chat-config.json", "GET"]
+    ];
+    var gpu = "no";
+    try { gpu = navigator.gpu && (await navigator.gpu.requestAdapter()) ? "yes" : "no"; } catch (e) {}
+    var out = ["Running in: " + (envPreview ? "a preview window" : envInstalled ? "the installed app" : envProto === "file:" ? "a local file" : "the browser"), "Phone online: " + (navigator.onLine ? "yes" : "no"), "WebGPU graphics: " + gpu], okc = 0;
+    for (var i = 0; i < tests.length; i++) {
+      var t = tests[i], ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 9000), r;
+      try {
+        var res = await fetch(t[1], { method: t[2], signal: ctl.signal, cache: "no-store" });
+        r = res.ok ? "reachable" : "answered with error " + res.status;
+      } catch (e) { r = (e && e.name === "AbortError") ? "too slow or blocked" : "blocked or unreachable"; }
+      clearTimeout(timer);
+      if (r === "reachable") okc++;
+      out.push(t[0] + ": " + r);
+    }
+    out.push(okc === tests.length ? "Result: everything is reachable. The download should work."
+      : okc === 0 ? "Result: nothing is reachable. " + (envPreview ? envHint() : "If you opened this from a file card or preview inside the Claude app, that is the likely cause: open the installed Lumen app or the website in Chrome instead. Otherwise your network is blocking these sites.")
+      : "Result: some sites are blocked. Another network may help.");
+    brainNote.textContent = out.join("\n");
+    btn.disabled = false;
   });
   brainOff.addEventListener("click", async function () {
     try { if (brain.engine && brain.engine.unload) await brain.engine.unload(); } catch (e) {}
@@ -1091,6 +1145,26 @@ form button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
     brainNote.textContent = brainNoteDefault;
     line("On-device brain turned off. Downloaded files stay in this browser.", "s");
   });
+
+  /* ---------- where is this running? (label in the header, banner in previews) ---------- */
+  var envFramed = false;
+  try { envFramed = window.top !== window.self; } catch (e) { envFramed = true; }
+  var envProto = location.protocol, envInstalled = false;
+  try { envInstalled = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true; } catch (e) {}
+  var envPreview = envFramed || (envProto !== "http:" && envProto !== "https:" && envProto !== "file:");
+  function envHint() {
+    return envPreview ? "You are in a preview window, and previews block internet access and the microphone. Open the installed Lumen app or the website in Chrome instead." : "";
+  }
+  (function paintEnv() {
+    var tag = $("#envtag"), banner = $("#envbanner");
+    tag.textContent = envPreview ? "Preview" : envInstalled ? "Installed app" : envProto === "file:" ? "Local file" : "Browser";
+    tag.className = "envtag" + (envPreview ? " warn" : "");
+    if (!envPreview) return;
+    banner.hidden = false;
+    banner.textContent = (window.claude && typeof window.claude.use === "function")
+      ? "This is the copy hosted inside Claude. Open questions work here, but the microphone, claps and model downloads are blocked. For the full version, open Lumen from your home screen or the website in Chrome."
+      : "This is a preview, not the real app. Previews block internet access and the microphone, so downloads and voice will not work. Open the installed Lumen app or the website in Chrome for the full version.";
+  })();
 
   line(greeting() + ". Lumen core online. All sensor nodes responding.", "a");
   line("Ask me anything in your own words, or tap a shortcut below.", "s");
